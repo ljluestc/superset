@@ -686,6 +686,91 @@ class PivotData {
     if (!this.sorted) {
       this.sorted = true;
       const v = (r, c) => this.getAggregator(r, c).value();
+
+      // Helper function to detect if metrics are in rows
+      const hasMetricInRows = () => this.props.rows.includes('metric');
+      const hasMetricInCols = () => this.props.cols.includes('metric');
+
+      // Helper function to group keys by series (non-metric dimensions)
+      const groupKeysBySeries = (keys, attrs, isRow) => {
+        const hasMetric = isRow ? hasMetricInRows() : hasMetricInCols();
+        if (!hasMetric) return null;
+
+        const metricIdx = attrs.indexOf('metric');
+        const seriesMap = new Map();
+
+        keys.forEach(key => {
+          // Extract series identifier (all dimensions except metric)
+          const seriesKey = key
+            .filter((_, idx) => idx !== metricIdx)
+            .join('\x00');
+
+          if (!seriesMap.has(seriesKey)) {
+            seriesMap.set(seriesKey, []);
+          }
+          seriesMap.get(seriesKey).push(key);
+        });
+
+        return seriesMap;
+      };
+
+      // Helper function to calculate aggregate value for a series
+      const getSeriesAggregateValue = (seriesKeys, isRow) => {
+        // Calculate sum of all metric values in the series
+        let sum = 0;
+        let count = 0;
+
+        seriesKeys.forEach(key => {
+          const val = isRow ? v(key, []) : v([], key);
+          if (typeof val === 'number' && !Number.isNaN(val)) {
+            sum += val;
+            count += 1;
+          }
+        });
+
+        return count > 0 ? sum : 0;
+      };
+
+      // Helper function to sort keys with series grouping
+      const sortWithSeriesGrouping = (keys, attrs, isRow, ascending) => {
+        const seriesMap = groupKeysBySeries(keys, attrs, isRow);
+
+        if (!seriesMap) {
+          // No metrics in this dimension, use regular sorting
+          return keys.sort((a, b) => {
+            const valA = isRow ? v(a, []) : v([], a);
+            const valB = isRow ? v(b, []) : v([], b);
+            return ascending
+              ? naturalSort(valA, valB)
+              : -naturalSort(valA, valB);
+          });
+        }
+
+        // Group by series and calculate aggregate values
+        const seriesWithAggregates = Array.from(seriesMap.entries()).map(
+          ([seriesKey, seriesKeys]) => ({
+            seriesKey,
+            seriesKeys,
+            aggregateValue: getSeriesAggregateValue(seriesKeys, isRow),
+          }),
+        );
+
+        // Sort series by aggregate value
+        seriesWithAggregates.sort((a, b) =>
+          ascending
+            ? naturalSort(a.aggregateValue, b.aggregateValue)
+            : -naturalSort(a.aggregateValue, b.aggregateValue),
+        );
+
+        // Flatten back to key array, maintaining series grouping
+        const sortedKeys = [];
+        seriesWithAggregates.forEach(({ seriesKeys }) => {
+          sortedKeys.push(...seriesKeys);
+        });
+
+        return sortedKeys;
+      };
+
       switch (this.props.rowOrder) {
         case 'key_z_to_a':
           this.rowKeys.sort(
@@ -693,10 +778,20 @@ class PivotData {
           );
           break;
         case 'value_a_to_z':
-          this.rowKeys.sort((a, b) => naturalSort(v(a, []), v(b, [])));
+          this.rowKeys = sortWithSeriesGrouping(
+            this.rowKeys,
+            this.props.rows,
+            true,
+            true,
+          );
           break;
         case 'value_z_to_a':
-          this.rowKeys.sort((a, b) => -naturalSort(v(a, []), v(b, [])));
+          this.rowKeys = sortWithSeriesGrouping(
+            this.rowKeys,
+            this.props.rows,
+            true,
+            false,
+          );
           break;
         default:
           this.rowKeys.sort(
@@ -710,10 +805,20 @@ class PivotData {
           );
           break;
         case 'value_a_to_z':
-          this.colKeys.sort((a, b) => naturalSort(v([], a), v([], b)));
+          this.colKeys = sortWithSeriesGrouping(
+            this.colKeys,
+            this.props.cols,
+            false,
+            true,
+          );
           break;
         case 'value_z_to_a':
-          this.colKeys.sort((a, b) => -naturalSort(v([], a), v([], b)));
+          this.colKeys = sortWithSeriesGrouping(
+            this.colKeys,
+            this.props.cols,
+            false,
+            false,
+          );
           break;
         default:
           this.colKeys.sort(

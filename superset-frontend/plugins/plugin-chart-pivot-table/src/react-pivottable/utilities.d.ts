@@ -17,20 +17,10 @@
  * under the License.
  */
 
-declare module '*.png' {
-  const value: any;
-  export default value;
+export class PivotData {
+  constructor(inputProps?: unknown, subtotals?: unknown);
+  getRowKeys(): unknown[][];
+  getColKeys(): unknown[][];
 }
 
-declare module '*.jpg';
-
-// Minimal typings for JS-based react-pivottable utilities used in tests
-declare module '../../src/react-pivottable/utilities' {
-  export class PivotData {
-    constructor(inputProps?: unknown, subtotals?: unknown);
-    getRowKeys(): unknown[][];
-    getColKeys(): unknown[][];
-  }
-  // Aggregator templates map; precise typing is unnecessary for tests
-  export const aggregators: unknown;
-}
+export const aggregators: unknown;
